@@ -31,12 +31,12 @@ def viz(img, flo):
     flo = flow_viz.flow_to_image(flo)
     img_flo = np.concatenate([img, flo], axis=0)
 
-    # import matplotlib.pyplot as plt
-    # plt.imshow(img_flo / 255.0)
-    # plt.show()
+    import matplotlib.pyplot as plt
+    plt.imshow(img_flo / 255.0)
+    plt.show()
 
-    cv2.imshow('image', img_flo[:, :, [2,1,0]]/255.0)
-    cv2.waitKey()
+    #cv2.imshow('image', img_flo[:, :, [2,1,0]]/255.0)
+    #cv2.waitKey()
 
 
 def demo(args):
