@@ -10,7 +10,10 @@ import torch
 from PIL import Image
 from raft import RAFT
 from utils.utils import InputPadder
+from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+from helper.dataset import FlowForwardBackwardDataset
 
 DEVICE = "cuda"
 
@@ -63,14 +66,12 @@ def run(args):
     create_dir(out_path_foward)
     create_dir(out_path_backward)
 
-    images_left = glob.glob(os.path.join(in_path_left, "*.jpg")) + \
-        glob.glob(os.path.join(in_path_left, "*.png"))
-    
-    images_right = glob.glob(os.path.join(in_path_right, "*.jpg")) + \
-        glob.glob(os.path.join(in_path_right, "*.png"))
+    num_gpus = torch.cuda.device_count()
 
-    images_left = sorted(images_left)
-    images_right = sorted(images_right)
+    data_loader = DataLoader(
+        dataset=FlowForwardBackwardDataset(in_path_left, in_path_right),
+        batch_size=num_gpus,
+        shuffle=False)
 
     model = torch.nn.DataParallel(RAFT(args))
     model.load_state_dict(torch.load(args.model))
@@ -79,33 +80,33 @@ def run(args):
     model.to(DEVICE)
     model.eval()
 
-    print("Start ... \n")
+    print("\nStart ...")
+    print(f"Running on {num_gpus} GPUs\n")
 
     with torch.no_grad():
 
-        for imfile1, imfile2 in tqdm(zip(images_left, images_right), total=len(images_left)):
+        for img_str, img_left, img_right in tqdm(data_loader):
 
-            image1 = load_image(imfile1)
-            image2 = load_image(imfile2)
+            assert img_left.shape[0] == 1, "batch size not same as number of gpus"
+            assert img_right.shape[0] == 1, "batch size not same as number of gpus"
+            img_left = img_left[0, ...]
+            img_right = img_right[0, ...]
 
-            padder = InputPadder(image1.shape)
-            image1, image2 = padder.pad(image1, image2)
-
+            print("Shape Left: ", img_left.shape)
+            print("Shape Right: ", img_right.shape)
+            print(img_str[0])
             # get foward flow - left -> right
-            forward_flow_low, forward_flow_up = model(image1, image2, iters=20, test_mode=True)
+            forward_flow_low, forward_flow_up = model(img_left, img_right, iters=20, test_mode=True)
             forward_flow = forward_flow_up[0].permute(1,2,0).cpu().numpy()
 
             # get backward flow - right -> left
-            backward_flow_low, backward_flow_up = model(image2, image1, iters=20, test_mode=True)
+            backward_flow_low, backward_flow_up = model(img_right, img_left, iters=20, test_mode=True)
             backward_flow = backward_flow_up[0].permute(1,2,0).cpu().numpy()
 
-            
-            file_str = imfile1.split("/")[-1].split(".")[0]
+            scale_and_save_flow(forward_flow, os.path.join(out_path_foward, img_str[0] + "_flo"))
+            scale_and_save_flow(backward_flow, os.path.join(out_path_backward, img_str[0] + "_flo"))
 
-            scale_and_save_flow(forward_flow, os.path.join(out_path_foward, file_str + "flo"))
-            scale_and_save_flow(backward_flow, os.path.join(out_path_backward, file_str + "flo"))
-
-    print("Done!")
+    print("\nDone!")
 
 
 
