@@ -1,6 +1,3 @@
-import sys
-sys.path.append('core')
-
 import argparse
 import os
 import cv2
@@ -8,12 +5,15 @@ import glob
 import numpy as np
 import torch
 from PIL import Image
-from raft import RAFT
-from utils.utils import InputPadder
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from helper.dataset import FlowForwardBackwardDataset
+import sys
+sys.path.append('core')  # NOQA
+
+from raft import RAFT  # NOQA
+from datasets import FlowForwardBackwardDataset  # NOQA
+from utils.utils import InputPadder  # NOQA
 
 DEVICE = "cuda"
 
@@ -23,6 +23,7 @@ def load_image(imfile):
     img = torch.from_numpy(img).permute(2, 0, 1).float()
     return img[None].to(DEVICE)
 
+
 def create_dir(path):
     try:
         os.makedirs(path, exist_ok=True)
@@ -30,7 +31,6 @@ def create_dir(path):
         print(f"Failed to create dir: {path}")
     else:
         print(f"Created dir: {path}")
-
 
 
 def scale_and_save_flow(flow, out_file):
@@ -52,6 +52,7 @@ def scale_and_save_flow(flow, out_file):
 
     np.save(out_file, flow)
 
+
 def run(args):
 
     in_path_left = os.path.join(args.path, "image_left")
@@ -62,21 +63,23 @@ def run(args):
     print("Computing forward and backwrd optical flow between:")
     print(f"    {in_path_left}")
     print(f"    {in_path_right}\n")
-    
+
     create_dir(out_path_foward)
     create_dir(out_path_backward)
 
     num_gpus = torch.cuda.device_count()
+    batch_size = num_gpus
 
     data_loader = DataLoader(
         dataset=FlowForwardBackwardDataset(in_path_left, in_path_right),
-        batch_size=num_gpus,
-        shuffle=False)
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2)
 
     model = torch.nn.DataParallel(RAFT(args))
     model.load_state_dict(torch.load(args.model))
 
-    model = model.module
+    # model = model.module ## -> No idea why this was needed
     model.to(DEVICE)
     model.eval()
 
@@ -87,36 +90,40 @@ def run(args):
 
         for img_str, img_left, img_right in tqdm(data_loader):
 
-            assert img_left.shape[0] == 1, "batch size not same as number of gpus"
-            assert img_right.shape[0] == 1, "batch size not same as number of gpus"
-            img_left = img_left[0, ...]
-            img_right = img_right[0, ...]
+            padder = InputPadder(img_left.shape)
+            img_left, img_right = padder.pad(img_left, img_right)
 
-            print("Shape Left: ", img_left.shape)
-            print("Shape Right: ", img_right.shape)
-            print(img_str[0])
             # get foward flow - left -> right
-            forward_flow_low, forward_flow_up = model(img_left, img_right, iters=20, test_mode=True)
-            forward_flow = forward_flow_up[0].permute(1,2,0).cpu().numpy()
+            _, forward_flow_up = model(
+                img_left, img_right, iters=20, test_mode=True)
+
+            forward_flow = forward_flow_up.permute(0, 2, 3, 1).cpu().numpy()
 
             # get backward flow - right -> left
-            backward_flow_low, backward_flow_up = model(img_right, img_left, iters=20, test_mode=True)
-            backward_flow = backward_flow_up[0].permute(1,2,0).cpu().numpy()
+            _, backward_flow_up = model(
+                img_right, img_left, iters=20, test_mode=True)
+            backward_flow = backward_flow_up.permute(0, 2, 3, 1).cpu().numpy()
 
-            scale_and_save_flow(forward_flow, os.path.join(out_path_foward, img_str[0] + "_flo"))
-            scale_and_save_flow(backward_flow, os.path.join(out_path_backward, img_str[0] + "_flo"))
+            # Loop over the batches
+            for i in range(batch_size):
+                scale_and_save_flow(forward_flow[i], os.path.join(
+                    out_path_foward, img_str[i] + "_flo"))
+                scale_and_save_flow(backward_flow[i], os.path.join(
+                    out_path_backward, img_str[i] + "_flo"))
 
     print("\nDone!")
-
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", help="restore checkpoint")
-    parser.add_argument("--path", help="folder containing the folders image_left and image_right")
+    parser.add_argument(
+        "--path", help="folder containing the folders image_left and image_right")
     parser.add_argument('--small', action='store_true', help='use small model')
-    parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
-    parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
+    parser.add_argument('--mixed_precision',
+                        action='store_true', help='use mixed precision')
+    parser.add_argument('--alternate_corr', action='store_true',
+                        help='use efficent correlation implementation')
     args = parser.parse_args()
 
     run(args)
