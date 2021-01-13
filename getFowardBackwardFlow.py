@@ -57,7 +57,7 @@ def run(args):
 
     in_path_left = os.path.join(args.path, "image_left")
     in_path_right = os.path.join(args.path, "image_right")
-    out_path_foward = os.path.join(args.path, "flow_foward")
+    out_path_foward = os.path.join(args.path, "flow_forward")
     out_path_backward = os.path.join(args.path, "flow_backward")
 
     print("Computing forward and backwrd optical flow between:")
