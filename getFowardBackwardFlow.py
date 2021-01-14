@@ -53,6 +53,14 @@ def scale_and_save_flow(flow, out_file):
     np.save(out_file, flow)
 
 
+def save_flow(flow, out_file):
+
+    assert flow.ndim == 3, "input flow must have three dims"
+    assert flow.shape[2], "input flow must have shape [H,W,2]"
+
+    np.save(out_file, flow)
+
+
 def run(args):
 
     in_path_left = os.path.join(args.path, "image_left")
@@ -106,9 +114,9 @@ def run(args):
 
             # Loop over the batches
             for i in range(batch_size):
-                scale_and_save_flow(forward_flow[i], os.path.join(
+                save_flow(forward_flow[i], os.path.join(
                     out_path_foward, img_str[i] + "_flo"))
-                scale_and_save_flow(backward_flow[i], os.path.join(
+                save_flow(backward_flow[i], os.path.join(
                     out_path_backward, img_str[i] + "_flo"))
 
     print("\nDone!")
